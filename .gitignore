@@ -29,3 +29,6 @@ flexgen/apps/runs
 
 # tmp scripts
 today_job.sh
+
+# offload directory
+flexgen_offload_dir/
