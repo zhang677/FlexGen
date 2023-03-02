@@ -770,9 +770,10 @@ class OptLM:
             ids = self.hidden[i][j][k].pop().data.detach().cpu().numpy()
             pos = self.task.prompt_len + i
             if self.task.stop:
+                stopped = self.stopped[left:right]
                 self.output_ids[left:right, pos:pos+1] = np.where(
-                    self.stopped, self.config.pad_token_id, ids)
-                self.stopped = np.logical_or(self.stopped, ids == self.task.stop)
+                    stopped, self.config.pad_token_id, ids)
+                stopped[:] = np.logical_or(stopped, ids == self.task.stop)
             else:
                 self.output_ids[left:right, pos:pos+1] = ids
         else:  # move to home
@@ -1176,7 +1177,11 @@ def get_test_inputs(prompt_len, num_prompts, tokenizer):
 
 
 def run_flexgen(args):
-    tokenizer = AutoTokenizer.from_pretrained("facebook/opt-30b", padding_side="left")
+    print(f"<run_flexgen>: args.model: {args.model}")
+    if args.model == "facebook/galactica-30b":
+        tokenizer = AutoTokenizer.from_pretrained("facebook/galactica-30b", padding_side="left")
+    else:
+        tokenizer = AutoTokenizer.from_pretrained("facebook/opt-30b", padding_side="left")
     num_prompts = args.num_gpu_batches * args.gpu_batch_size
     prompt_len, gen_len, cut_gen_len = args.prompt_len, args.gen_len, args.cut_gen_len
 
