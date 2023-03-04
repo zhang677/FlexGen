@@ -9,6 +9,7 @@ class Case:
     command: str
     name: str = ""
     use_page_maga: bool = False
+    extra_command: str = ""
 
 
 suite_1b3_test = [
@@ -39,11 +40,11 @@ suite_1b3_test = [
 suite_6b7_1x1 = [
     # seq_len = 256, gen_len = 32
     # 53.29 token/s
-    Case("--model facebook/opt-6.7b --path _DUMMY_ --prompt-len 256 --gen-len 32 --percent 100 0 100 0 100 0 --gpu-batch-size 4 --overlap False"),
+    Case("--model facebook/opt-6.7b --prompt-len 256 --gen-len 32 --percent 100 0 100 0 100 0 --gpu-batch-size 4 --overlap False"), # --path _DUMMY_ 
     # seq_len = 512, gen_len = 32
-    Case("--model facebook/opt-6.7b --path _DUMMY_ --percent 100 0 100 0 100 0 --gpu-batch-size 2 --overlap False"),
+    Case("--model facebook/opt-6.7b --percent 100 0 100 0 100 0 --gpu-batch-size 2 --overlap False"),
     # seq_len = 1024, gen_len = 32
-    Case("--model facebook/opt-6.7b --path _DUMMY_ --percent 100 0 100 0 100 0 --gpu-batch-size 1 --overlap False --prompt-len 1024"),
+    Case("--model facebook/opt-6.7b --percent 100 0 100 0 100 0 --gpu-batch-size 1 --overlap False --prompt-len 1024"),
 ]
 
 suite_6b7_1x1_comp = [
@@ -187,8 +188,13 @@ if __name__ == "__main__":
     for suite in args.suite:
         cases = suites[suite]
         for case in cases:
+            if suite == "1b3_test" or suite == "6b7_1x1":
+                case.extra_command = " --offload-dir /home/nfs_data/zhanggh/FlexGen/flexgen_offload_dir --path /home/nfs_data/opt_weights_np "
+            else:
+                case.extra_command = " --offload-dir /home/nfs_data/zhanggh/FlexGen/flexgen_offload_dir "
+            case.command += case.extra_command
             config, name, use_page_maga = case.command, case.name, case.use_page_maga
-            cmd = f"python -m flexgen.flex_opt {config}"
+            cmd = f"CUDA_VISIBLE_DEVICES=1 python -m flexgen.flex_opt {config}"
             if log_file:
                 cmd += f" --log-file {args.log_file}"
             if use_page_maga:
@@ -196,6 +202,8 @@ if __name__ == "__main__":
 
             if log_file:
                 with open(log_file, "a") as f: f.write(f"#### {name}\n```\n{cmd}\n")
+            run_cmd("export TRANSFORMERS_CACHE=/home/nfs_data/zhanggh/.cache")
+            run_cmd("export HF_HOME=/home/nfs_data/zhanggh/.cache/huggingface")
             run_cmd(cmd)
             if log_file:
                 with open(log_file, "a") as f: f.write(f"```\n")

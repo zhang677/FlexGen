@@ -13,14 +13,14 @@ case $MODE in
     case $MODEL in
 
       opt-1.3b)
-        CUDA_VISIBLE_DEVICES=0 python3 -m flexgen.flex_opt \
+        CUDA_VISIBLE_DEVICES=1 python3 -m flexgen.flex_opt \
         --model facebook/opt-1.3b \
         --path $OPT_PATH \
         --offload-dir $OFFLOAD_DIR
         ;;
 
       opt-30b)
-        CUDA_VISIBLE_DEVICES=0 python3 -m flexgen.flex_opt \
+        CUDA_VISIBLE_DEVICES=1 python3 -m flexgen.flex_opt \
         --model facebook/opt-30b \
         --path $OPT_PATH  \
         --offload-dir $OFFLOAD_DIR \
@@ -34,14 +34,14 @@ case $MODE in
     case $MODEL in
 
       opt-6.7b)
-        CUDA_VISIBLE_DEVICES=0 python3 -m flexgen.apps.completion \
+        CUDA_VISIBLE_DEVICES=1 python3 -m flexgen.apps.completion \
         --model facebook/opt-6.7b \
         --path $OPT_PATH  \
         --offload-dir $OFFLOAD_DIR
         ;;
 
       opt-30b)
-        CUDA_VISIBLE_DEVICES=0 python3 -m flexgen.apps.completion \
+        CUDA_VISIBLE_DEVICES=1 python3 -m flexgen.apps.completion \
         --model facebook/opt-30b \
         --path $OPT_PATH  \
         --offload-dir $OFFLOAD_DIR \
@@ -49,7 +49,7 @@ case $MODE in
         ;;
       
       opt-max-30b)
-        CUDA_VISIBLE_DEVICES=0 python3 -m flexgen.apps.completion \
+        CUDA_VISIBLE_DEVICES=1 python3 -m flexgen.apps.completion \
         --model facebook/opt-30b \
         --path $OPT_PATH  \
         --offload-dir $OFFLOAD_DIR \
