@@ -212,7 +212,7 @@ def get_hf_opt_model(model_name, dtype, cpu_offload, disk_offload, offload_dir,
 def run_generation(model_name, batch_size, prompt_len, gen_len, cut_gen_len,
                    cpu_offload, disk_offload, offload_dir, use_int8,
                    num_nodes, num_gpus_per_node, use_deepspeed, dummy,
-                   output_file, pkl_file, no_log, verbose):
+                   output_file, pkl_file, no_log, verbose, num_batches):
     # Load tokenizer
     tokenizer = AutoTokenizer.from_pretrained(
         model_name.replace("175b", "66b"), padding_side="left")
@@ -263,24 +263,28 @@ def run_generation(model_name, batch_size, prompt_len, gen_len, cut_gen_len,
 
     # Run
     print("benchmark")
-    timers("generate-forward").reset()
+    timers("generate-forward").start()
     generate_kwargs = dict(max_new_tokens=execute_gen_len, do_sample=False)
     with torch.no_grad():
-        output_ids = model.generate(input_ids=input_ids, **generate_kwargs)
+        for _ in range(num_batches):
+            output_ids = model.generate(input_ids=input_ids, **generate_kwargs)
+    timers("generate-forward").stop()
     costs = timers("generate-forward").costs
+    
 
     if use_deepspeed and args.local_rank != 0:
         return
 
     # Log output
+    num_prompts = batch_size * num_batches
     prefill_latency = costs[0]
-    prefill_throughput = batch_size * prompt_len / prefill_latency
+    prefill_throughput = num_prompts * prompt_len / prefill_latency
     if cut_gen_len:  # project latency of cut_gen_len to gen_len
         decode_latency = project_decode_latency(costs, prompt_len, gen_len)
     else:
         decode_latency = sum(costs[1:])
-    decode_throughput = batch_size * (gen_len - 1) / max(decode_latency, 1e-10)
-    num_generated_tokens = batch_size * gen_len
+    decode_throughput = num_prompts * (gen_len - 1) / max(decode_latency, 1e-10)
+    num_generated_tokens = num_prompts * gen_len
     total_latency = prefill_latency + decode_latency
     total_throughput = num_generated_tokens / total_latency
     gpu_peak_mem = torch.cuda.max_memory_allocated(torch.device("cuda"))
@@ -340,6 +344,8 @@ if __name__ == "__main__":
     parser.add_argument("--pkl-file", type=str, default="auto")
     parser.add_argument("--no-log", action="store_true")
     parser.add_argument("--verbose", type=int, default=2)
+    parser.add_argument("--num-batch", type=int, default=1)
+
     args = parser.parse_args()
 
     assert not (args.no_log and
@@ -360,4 +366,4 @@ if __name__ == "__main__":
                    os.path.abspath(os.path.expanduser(args.offload_dir)),
                    args.int8, num_nodes, num_gpus_per_node, use_deepspeed,
                    args.dummy, args.log_file, args.pkl_file,
-                   args.no_log, args.verbose)
+                   args.no_log, args.verbose, args.num_batch)

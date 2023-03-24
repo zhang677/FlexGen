@@ -1,0 +1,1 @@
+deepspeed --num_gpus 1 hf_opt.py --offload-dir /home/nfs_data/zhanggh/FlexGen/flexgen_offload_dir --prompt-len 256 --gen-len 32 --model facebook/opt-30b --batch-size 16 --num-batch 20 --cpu-offload

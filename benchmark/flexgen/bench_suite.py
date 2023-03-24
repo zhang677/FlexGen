@@ -78,6 +78,19 @@ suite_30b_1x1_comp = [
     Case("--model facebook/opt-30b --path _DUMMY_ --percent 0 100 0 100 0 100 --gpu-batch-size 20 --num-gpu-batches 12 --debug fewer_batch --compress-cache --prompt-len 1024"),
 ]
 
+
+suite_1b3_1x1_single = [
+    Case("--model facebook/opt-1.3b --path /home/nfs_data/opt_weights_np --offload-dir /home/nfs_data/zhanggh/FlexGen/flexgen_offload_dir --prompt-len 256 --gen-len 32 --gpu-batch-size 160 --num-gpu-batches 2 --percent 0 100 0 100 100 0 --compress-cache --compress-weight --pin-weight")
+]
+
+suite_30b_1x1_single = [
+    Case("--model facebook/opt-30b --path /home/nfs_data/opt_weights_np --offload-dir /home/nfs_data/zhanggh/FlexGen/flexgen_offload_dir --prompt-len 256 --gen-len 32 --gpu-batch-size 160 --num-gpu-batches 2 --percent 0 100 0 100 100 0 --compress-cache --compress-weight --pin-weight")
+]
+
+suite_30b_1x1_single_comp = [
+    Case("--model facebook/opt-30b --path /home/nfs_data/opt_weights_np --offload-dir /home/nfs_data/zhanggh/FlexGen/flexgen_offload_dir --prompt-len 256 --gen-len 32 --gpu-batch-size 160 --num-gpu-batches 2 --percent 10 90 0 100 0 100 --cpu-cache-compute --compress-cache")
+]
+
 suite_175b_1x1 = [
     # seq_len = 256
     # 1.36 token/s
@@ -156,12 +169,15 @@ suite_175b_stage = [
 
 suites = {
     "1b3_test": suite_1b3_test,
+    "1b3_1x1_single": suite_1b3_1x1_single,
 
     "6b7_1x1": suite_6b7_1x1,
     "6b7_1x1_comp": suite_6b7_1x1_comp,
 
     "30b_1x1": suite_30b_1x1,
     "30b_1x1_comp": suite_30b_1x1_comp,
+    "30b_1x1_single": suite_30b_1x1_single,
+    "30b_1x1_single_comp": suite_30b_1x1_single_comp,
 
     "175b_1x1": suite_175b_1x1,
     "175b_1x1_comp": suite_175b_1x1_comp,
@@ -188,13 +204,8 @@ if __name__ == "__main__":
     for suite in args.suite:
         cases = suites[suite]
         for case in cases:
-            if suite == "1b3_test" or suite == "6b7_1x1":
-                case.extra_command = " --offload-dir /home/nfs_data/zhanggh/FlexGen/flexgen_offload_dir --path /home/nfs_data/opt_weights_np "
-            else:
-                case.extra_command = " --offload-dir /home/nfs_data/zhanggh/FlexGen/flexgen_offload_dir "
-            case.command += case.extra_command
             config, name, use_page_maga = case.command, case.name, case.use_page_maga
-            cmd = f"CUDA_VISIBLE_DEVICES=1 python -m flexgen.flex_opt {config}"
+            cmd = f"CUDA_VISIBLE_DEVICES=3 python -m flexgen.flex_opt {config} --dfss"
             if log_file:
                 cmd += f" --log-file {args.log_file}"
             if use_page_maga:
@@ -204,6 +215,7 @@ if __name__ == "__main__":
                 with open(log_file, "a") as f: f.write(f"#### {name}\n```\n{cmd}\n")
             run_cmd("export TRANSFORMERS_CACHE=/home/nfs_data/zhanggh/.cache")
             run_cmd("export HF_HOME=/home/nfs_data/zhanggh/.cache/huggingface")
+            run_cmd("export TMP=/home/nfs_data/zhanggh/tmp ")
             run_cmd(cmd)
             if log_file:
                 with open(log_file, "a") as f: f.write(f"```\n")

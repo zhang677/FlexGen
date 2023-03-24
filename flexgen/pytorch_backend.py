@@ -13,6 +13,8 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 
+import pydfss
+
 from flexgen.utils import (GB, T, cpu_mem_stats, vector_gather,
     np_dtype_to_torch_dtype, torch_dtype_to_np_dtype,
     torch_dtype_to_num_bytes)
@@ -333,7 +335,7 @@ class TorchDevice:
         # shape: (b, 1, s, s)
         idx = torch.arange(s, device=self.dev)
         causal_mask = (idx <= idx.view(s, 1)).view(1, 1, s, s)
-        mask = attention_mask.data.view(b, 1, 1, s) & causal_mask
+        mask = attention_mask.data.view(b, 1, 1, s) & causal_mask # (b, 1, s, s)
 
         # shape: (b, n_head, s, s)
         attn_weights = attn_weights.view(b, n_head, s, s)
@@ -467,6 +469,68 @@ class TorchDevice:
             v_new = TorchTensor.create_from_torch(v_new, self)
 
         return TorchTensor.create_from_torch(value, self), k_new, v_new
+    
+    def mha_dfss(self, inputs, attention_mask, w_q, b_q, w_k, b_k, w_v, b_v,
+            w_out, b_out, w_ln, b_ln, n_head, donate, compress_cache, comp_config):
+        """Multi-head attention (prefill phase)."""
+        # decompress weights
+        if w_q.device.device_type == DeviceType.COMPRESSED:
+            w_q = w_q.device.decompress(w_q)
+            w_k = w_k.device.decompress(w_k)
+            w_v = w_v.device.decompress(w_v)
+            w_out = w_out.device.decompress(w_out)
+
+        b, s, h = inputs.shape
+        head_dim = h // n_head
+        scaling = head_dim ** -0.5
+
+        hidden = F.layer_norm(inputs.data, (h,), weight=w_ln.data, bias=b_ln.data)
+
+        # shape: (b, s, h)
+        q = F.linear(hidden, w_q.data, bias=b_q.data) * scaling
+        k = F.linear(hidden, w_k.data, bias=b_k.data)
+        v = F.linear(hidden, w_v.data, bias=b_v.data)
+        # shape: (b, s, n_head, head_dim)
+        q = q.view(b, s, n_head, head_dim)
+        k = k.view(b, s, n_head, head_dim)
+        v = v.view(b, s, n_head, head_dim)
+
+        # shape: (b * n_head, s, head_dim)
+        q = q.permute(0, 2, 1, 3).reshape(b * n_head, s, head_dim).to(dtype=torch.bfloat16)
+        # shape: (b * n_head, s, head_dim)
+        k = k.permute(0, 2, 1, 3).reshape(b * n_head, s, head_dim).to(dtype=torch.bfloat16)
+        # shape: (b * n_head, s, head_dim)
+        v = v.permute(0, 2, 1, 3).reshape(b * n_head, s, head_dim).to(dtype=torch.bfloat16)
+        # shape: (b, 1, s, s)
+        idx = torch.arange(s, device=self.dev)
+        causal_mask = (idx <= idx.view(s, 1)).view(1, 1, s, s)
+        mask = (attention_mask.data.view(b, 1, 1, s) & causal_mask).to(dtype=torch.bfloat16) * -1e16
+        # shape: (b * n_head, s, s)
+        qk_nnz, qk_meta = pydfss.sddmm(q, k, mask, False)
+        softmax = F.softmax(qk_nnz, dim=-1)
+        # shape: (b, n_head, s, head_dim)
+        value = pydfss.spmm(softmax, qk_meta, v, False).view(b, n_head, s, head_dim)
+        # shape: (b, s, h)
+        value = value.transpose(1, 2).reshape(b, s, h).to(dtype=torch.float16)
+        value = F.linear(value, w_out.data, bias=b_out.data)
+
+        value.add_(inputs.data)
+
+        if donate[0]: inputs.delete()
+        if donate[1]: attention_mask.delete()
+
+        # (s, b * n_head, head_dim)
+        k = k.permute(1, 0, 2).to(dtype=torch.float16)
+        v = v.permute(1, 0, 2).to(dtype=torch.float16)
+
+        if compress_cache:
+            k = self.compressed_device.compress(k, comp_config)
+            v = self.compressed_device.compress(v, comp_config)
+        else:
+            k = TorchTensor.create_from_torch(k, self)
+            v = TorchTensor.create_from_torch(v, self)
+
+        return TorchTensor.create_from_torch(value, self), k, v    
 
     def _attention_weights(self, q, k, mask, b, src_s, n_head):
         # shape: (b * n_head, 1, s)

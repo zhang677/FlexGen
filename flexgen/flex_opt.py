@@ -24,6 +24,9 @@ from flexgen.utils import (Task, ExecutionEnv, GB, T, ValueHolder,
     array_1d, array_2d, array_3d, str2bool, project_decode_latency,
     torch_mem_stats, torch_dtype_to_np_dtype, write_benchmark_log,
     read_benchmark_log)
+# from GPUTools.torch_tensor_recorder.gpu_mem_track import MemTracker
+
+# gpu_tracker = MemTracker(detail=True, path='/home/nfs_data/zhanggh/FlexGen/benchmark/flexgen', verbose=False, device=3)
 
 fix_recursive_import()
 
@@ -443,10 +446,16 @@ class SelfAttention:
 
         if i == 0:  # prefill
             mask, donate[1] = attention_mask.val.smart_copy(self.compute)
-            h, new_k_cache, new_v_cache = self.compute.mha(h, mask, w_q, b_q,
-                w_k, b_k, w_v, b_v, w_out, b_out, w_ln, b_ln, n_head, donate,
-                self.policy.compress_cache, self.policy.comp_cache_config)
-            cache_write_buf.store((new_k_cache, new_v_cache))
+            if use_dfss:
+                h, new_k_cache, new_v_cache = self.compute.mha_dfss(h, mask, w_q, b_q,
+                    w_k, b_k, w_v, b_v, w_out, b_out, w_ln, b_ln, n_head, donate,
+                    self.policy.compress_cache, self.policy.comp_cache_config)
+                cache_write_buf.store((new_k_cache, new_v_cache))
+            else:
+                h, new_k_cache, new_v_cache = self.compute.mha(h, mask, w_q, b_q,
+                    w_k, b_k, w_v, b_v, w_out, b_out, w_ln, b_ln, n_head, donate,
+                    self.policy.compress_cache, self.policy.comp_cache_config)
+                cache_write_buf.store((new_k_cache, new_v_cache))                
         else:  # decoding
             mask, donate[1] = attention_mask.val.smart_copy(self.attention_compute)
             (k_cache, donate[12]), (v_cache, donate[13]) = cache_read_buf.pop()
@@ -877,6 +886,8 @@ class OptLM:
         if self.policy.cpu_cache_compute:
             self.env.cpu.init_attention_compute_workspace(self.config, self.task, self.policy)
 
+        # gpu_tracker.track()
+
         # Generate
         if debug_mode is None:
             if not overlap:
@@ -914,16 +925,24 @@ class OptLM:
             timers("generate").start()
             for k in range(self.num_gpu_batches):
                 self.update_attention_mask(i, k)
+                # gpu_tracker.track()
+
             for j in range(self.num_layers):
                 for k in range(self.num_gpu_batches):
                     self.load_weight(i, j, k, overlap=False)
+                    # gpu_tracker.track()
 
                 for k in range(self.num_gpu_batches):
                     self.load_cache(i, j, k, overlap=False)
+                    # gpu_tracker.track()
                     self.load_hidden(i, j, k)
+                    # gpu_tracker.track()
                     self.compute_layer(i, j, k)
+                    # gpu_tracker.track()
                     self.store_hidden(i, j, k)
+                    # gpu_tracker.track()
                     self.store_cache(i, j, k, overlap=False)
+                    # gpu_tracker.track()
             timers("generate").stop()
 
     def generation_loop_debug_normal(self):
@@ -1216,19 +1235,21 @@ def run_flexgen(args):
           f"hidden size (prefill): {hidden_size/GB:.3f} GB")
 
     print("init weight...")
+    # gpu_tracker.track()
     model = OptLM(opt_config, env, args.path, policy)
-
+    # gpu_tracker.track()
     try:
         print("warmup - generate")
         output_ids = model.generate(
             warmup_inputs, max_new_tokens=1, verbose=args.verbose)
-
+        # gpu_tracker.track()
         print("benchmark - generate")
         timers("generate").reset()
         output_ids = model.generate(
             inputs, max_new_tokens=args.gen_len,
             debug_mode=args.debug_mode, cut_gen_len=cut_gen_len, verbose=args.verbose)
         costs = timers("generate").costs
+        # gpu_tracker.track()
     finally:
         env.close_copy_threads()
 
@@ -1315,6 +1336,8 @@ def add_parser_arguments(parser):
 
     parser.add_argument("--overlap", type=str2bool, nargs='?',
         const=True, default=True)
+    
+    parser.add_argument("--dfss", action="store_true", help="Whether to use dfss")
 
 
 if __name__ == "__main__":
@@ -1323,5 +1346,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     assert len(args.percent) == 6
+
+    global use_dfss 
+    use_dfss = args.dfss
 
     run_flexgen(args)

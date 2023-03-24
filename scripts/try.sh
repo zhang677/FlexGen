@@ -16,7 +16,8 @@ case $MODE in
         CUDA_VISIBLE_DEVICES=1 python3 -m flexgen.flex_opt \
         --model facebook/opt-1.3b \
         --path $OPT_PATH \
-        --offload-dir $OFFLOAD_DIR
+        --offload-dir $OFFLOAD_DIR \
+        --dfss
         ;;
 
       opt-30b)

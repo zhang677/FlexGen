@@ -27,7 +27,8 @@ flexgen/apps/benchmark_output
 *.tsv
 *.log
 *.raw
-
+*.txt
+*.nsys-rep
 # tmp scripts
 today_job.sh
 
